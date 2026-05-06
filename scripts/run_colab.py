@@ -6,14 +6,16 @@ Before running, add WANDB_API_KEY to Colab Secrets
 """
 
 import os
+import sys
 from google.colab import userdata
 
 os.environ['WANDB_API_KEY'] = userdata.get('WANDB_API_KEY')
 
-from gpu_queue import GPUQueue  # noqa: E402  (import after path is set)
+sys.path.insert(0, '/content/cifar_experiment/scripts')
+from gpu_queue import GPUQueue  # noqa: E402
 
 # ── paths ──────────────────────────────────────────────────────────────────
-BASE     = "/content/scripts"
+BASE     = "/content/cifar_experiment/scripts"
 DATA     = "/content/data"
 OUT_BASE = "/content/drive/MyDrive/cifar_experiment/outputs/run1"
 LOG_DIR  = "/content/logs"
