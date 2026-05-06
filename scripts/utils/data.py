@@ -49,7 +49,7 @@ def get_dataloaders(data_dir, val_size=5000, batch_size=256,
         root=data_dir, train=False, download=True,
         transform=transform_eval)
 
-    rng     = np.random.RandomState(seed)
+    rng     = np.random.RandomState(42)  # fixed split across all seeds
     targets = np.array(full_train_aug.targets)
 
     train_indices, val_indices = [], []
