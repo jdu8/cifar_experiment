@@ -7,11 +7,11 @@ Before running:
   3. Run this cell
 """
 
-import os
 import sys
-from google.colab import userdata
 
-os.environ['WANDB_API_KEY'] = userdata.get('WANDB_API_KEY')
+# WANDB_API_KEY must be set in the notebook before running this script:
+#   from google.colab import userdata
+#   import os; os.environ['WANDB_API_KEY'] = userdata.get('WANDB_API_KEY')
 
 sys.path.insert(0, '/content/cifar_experiment/scripts')
 from gpu_queue import GPUQueue  # noqa: E402
