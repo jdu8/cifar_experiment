@@ -38,8 +38,10 @@ def parse_args():
     p.add_argument('--smoke_test',   action='store_true')
     p.add_argument('--wandb_project',type=str,   default='cifar')
     p.add_argument('--run_name',     type=str,   default=None)
-    p.add_argument('--sample_every', type=int,   default=1)
-    p.add_argument('--no_animation', action='store_true')
+    p.add_argument('--sample_every',    type=int,   default=1)
+    p.add_argument('--no_animation',    action='store_true')
+    p.add_argument('--umap_fit_epoch',  type=int,   default=3)
+    p.add_argument('--umap_max_points', type=int,   default=20000)
     return p.parse_args()
 
 
@@ -91,6 +93,8 @@ def main():
     train_losses_history = []
     train_labels_arr     = None
     displacements        = []
+    umap_reducer         = None
+    warmup_embs          = []   # raw embeddings buffered until UMAP is fitted
     best_test_acc        = 0.0
     patience_counter     = 0
 
@@ -134,12 +138,20 @@ def main():
         train_embs_history = [train_embs]
         train_losses_history.append(train_losses)
 
-        # Fit UMAP once on epoch 1, transform each epoch
+        # Fit UMAP once after warmup; retroactively project buffered epochs
         if not args.no_animation:
-            if epoch == 0:
-                umap_reducer = fit_umap_reducer(train_embs, max_points=5000)
-            project_and_save(umap_reducer, train_embs,
-                             args.out_dir, epoch + 1)
+            if epoch < args.umap_fit_epoch:
+                warmup_embs.append(train_embs.copy())
+            elif epoch == args.umap_fit_epoch:
+                umap_reducer = fit_umap_reducer(
+                    train_embs, max_points=args.umap_max_points)
+                for past_ep, past_embs in enumerate(warmup_embs):
+                    project_and_save(umap_reducer, past_embs,
+                                     args.out_dir, past_ep + 1)
+                warmup_embs = []
+            if umap_reducer is not None:
+                project_and_save(umap_reducer, train_embs,
+                                 args.out_dir, epoch + 1)
 
         # ── Metrics ────────────────────────────────────────────────────────
 
