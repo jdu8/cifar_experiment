@@ -1,0 +1,27 @@
+# Experiment outputs — model checkpoints, wandb runs, projections
+outputs/
+/tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# Data (downloaded at runtime)
+data/
+
+# OS
+.DS_Store
