@@ -37,26 +37,26 @@ def get_transforms():
 
 def get_dataloaders(data_dir, val_size=5000, batch_size=256,
                     num_workers=2, seed=0, smoke_test=False,
-                    eval_batch_size=None):
+                    eval_batch_size=None, dataset='cifar10'):
     transform_train, transform_eval = get_transforms()
 
-    full_train_aug  = torchvision.datasets.CIFAR10(
-        root=data_dir, train=True,  download=True,
-        transform=transform_train)
-    full_train_eval = torchvision.datasets.CIFAR10(
-        root=data_dir, train=True,  download=True,
-        transform=transform_eval)
-    test_dataset    = torchvision.datasets.CIFAR10(
-        root=data_dir, train=False, download=True,
-        transform=transform_eval)
+    DS = torchvision.datasets.CIFAR100 if dataset == 'cifar100' else torchvision.datasets.CIFAR10
+    n_classes = 100 if dataset == 'cifar100' else 10
+
+    full_train_aug  = DS(root=data_dir, train=True,  download=True,
+                         transform=transform_train)
+    full_train_eval = DS(root=data_dir, train=True,  download=True,
+                         transform=transform_eval)
+    test_dataset    = DS(root=data_dir, train=False, download=True,
+                         transform=transform_eval)
 
     rng     = np.random.RandomState(42)  # fixed split across all seeds
     targets = np.array(full_train_aug.targets)
 
     train_indices, val_indices = [], []
-    val_per_class = val_size // 10
+    val_per_class = val_size // n_classes
 
-    for cls in range(10):
+    for cls in range(n_classes):
         cls_idx = np.where(targets == cls)[0]
         rng.shuffle(cls_idx)
         val_indices.extend(cls_idx[:val_per_class].tolist())
@@ -110,6 +110,8 @@ def get_dataloaders(data_dir, val_size=5000, batch_size=256,
         'n_train':       len(train_indices),
         'n_val':         len(val_indices),
         'n_test':        len(test_indices),
+        'n_classes':     n_classes,
+        'classes':       full_train_aug.classes,
     }
 
     print(f"Split — Train: {len(train_indices)}, "

@@ -45,19 +45,15 @@ def compute_neighbors_faiss(val_embs, train_embs, k=20):
 
 
 def compute_within_class_neighbors_faiss(val_embs, val_labels,
-                                         train_embs, train_labels, k=20):
-    """
-    For each val point find k nearest train neighbors
-    restricted to same class only, using faiss.
-    Returns indices (N, k) into global train array.
-    """
+                                         train_embs, train_labels,
+                                         k=20, n_classes=10):
     val_norm   = _normalize(val_embs)
     train_norm = _normalize(train_embs)
 
     n_val      = len(val_labels)
     indices_within = np.full((n_val, k), -1, dtype=np.int64)
 
-    for cls in range(10):
+    for cls in range(n_classes):
         val_mask   = val_labels   == cls
         train_mask = train_labels == cls
 
@@ -174,7 +170,7 @@ def compute_displacement(embs_prev, embs_curr):
 
 def compute_metrics_summary(val_losses, val_labels, val_embs,
                              train_losses, train_labels, train_embs,
-                             prev_train_embs=None, k=20):
+                             prev_train_embs=None, k=20, n_classes=10):
     """
     Compute all metrics in one call using faiss for fast kNN.
     Returns flat dict suitable for wandb.log()
@@ -193,7 +189,7 @@ def compute_metrics_summary(val_losses, val_labels, val_embs,
 
     # Within class neighbors
     within_indices = compute_within_class_neighbors_faiss(
-        val_embs, val_labels, train_embs, train_labels, k=k)
+        val_embs, val_labels, train_embs, train_labels, k=k, n_classes=n_classes)
 
     # Within class spearman
     rho_within, _ = compute_spearman(
