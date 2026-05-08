@@ -2,9 +2,9 @@ torch
 torchvision
 numpy
 scipy
-faiss-gpu-cu12
+faiss-cpu
 wandb
 umap-learn
 matplotlib
 tqdm
-pynvml
+nvidia-ml-py

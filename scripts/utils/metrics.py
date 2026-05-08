@@ -1,4 +1,5 @@
 
+import time
 import numpy as np
 import torch
 import faiss
@@ -91,7 +92,7 @@ def compute_within_class_neighbors_faiss(val_embs, val_labels,
     return indices_within
 
 
-def evaluation_pass(loader, model, criterion, device):
+def evaluation_pass(loader, model, criterion, device, name='eval'):
     """
     Frozen weights pass — returns per-sample losses, embeddings,
     labels, accuracy.
@@ -100,23 +101,38 @@ def evaluation_pass(loader, model, criterion, device):
     all_losses, all_embs, all_labels = [], [], []
     correct = total = 0
 
+    t_load = t_transfer = t_forward = t_gather = 0.0
+    t_batch_start = time.perf_counter()
+
     with torch.no_grad():
         for inputs, labels in loader:
+            t0 = time.perf_counter();  t_load += t0 - t_batch_start
+
             inputs, labels = inputs.to(device), labels.to(device)
-            logits, emb    = model(inputs, return_embedding=True)
-            loss           = criterion(logits, labels)
+            t1 = time.perf_counter();  t_transfer += t1 - t0
+
+            logits, emb = model(inputs, return_embedding=True)
+            loss        = criterion(logits, labels)
+            if device.type == 'cuda':
+                torch.cuda.synchronize()
+            t2 = time.perf_counter();  t_forward += t2 - t1
 
             all_losses.append(loss.cpu().numpy())
             all_embs.append(emb.cpu().numpy())
             all_labels.append(labels.cpu().numpy())
-
             correct += (logits.argmax(1) == labels).sum().item()
             total   += labels.size(0)
+            t_batch_start = time.perf_counter();  t_gather += t_batch_start - t2
 
     losses = np.concatenate(all_losses)
     embs   = np.concatenate(all_embs)
     labels = np.concatenate(all_labels)
     acc    = correct / total
+
+    total_t = t_load + t_transfer + t_forward + t_gather
+    print(f"    {name}: load={t_load:.2f}s  transfer={t_transfer:.2f}s  "
+          f"forward={t_forward:.2f}s  gather={t_gather:.2f}s  "
+          f"total={total_t:.2f}s  ({total} samples)")
 
     return losses, embs, labels, acc
 

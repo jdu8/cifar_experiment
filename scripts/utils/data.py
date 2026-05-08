@@ -36,7 +36,8 @@ def get_transforms():
 
 
 def get_dataloaders(data_dir, val_size=5000, batch_size=256,
-                    num_workers=2, seed=0, smoke_test=False):
+                    num_workers=2, seed=0, smoke_test=False,
+                    eval_batch_size=None):
     transform_train, transform_eval = get_transforms()
 
     full_train_aug  = torchvision.datasets.CIFAR10(
@@ -72,30 +73,35 @@ def get_dataloaders(data_dir, val_size=5000, batch_size=256,
     train_loader = DataLoader(
         Subset(full_train_aug, train_indices),
         batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=True)
+        num_workers=num_workers, pin_memory=True,
+        persistent_workers=(num_workers > 0))
 
     # Indexed train loader — returns (data, label, index), shuffled, augmented
     # Used by train_reweight.py so weights are applied to correct samples
     train_loader_indexed = DataLoader(
         IndexedDataset(Subset(full_train_aug, train_indices)),
         batch_size=batch_size, shuffle=True,
-        num_workers=num_workers, pin_memory=True)
+        num_workers=num_workers, pin_memory=True,
+        persistent_workers=(num_workers > 0))
 
-    # Eval loaders — no augmentation, fixed order
+    # Eval loaders — num_workers=0 avoids Windows spawn overhead (~10s per
+    # loader); larger batch size compensates by reducing loop iterations and
+    # improving GPU utilization.
+    ebs = eval_batch_size or batch_size * 2
     train_eval_loader = DataLoader(
         Subset(full_train_eval, train_indices),
-        batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True)
+        batch_size=ebs, shuffle=False,
+        num_workers=0, pin_memory=True)
 
     val_loader = DataLoader(
         Subset(full_train_eval, val_indices),
-        batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True)
+        batch_size=ebs, shuffle=False,
+        num_workers=0, pin_memory=True)
 
     test_loader = DataLoader(
         Subset(test_dataset, test_indices),
-        batch_size=batch_size, shuffle=False,
-        num_workers=num_workers, pin_memory=True)
+        batch_size=ebs, shuffle=False,
+        num_workers=0, pin_memory=True)
 
     split_info = {
         'train_indices': train_indices,

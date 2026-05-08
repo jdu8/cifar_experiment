@@ -1,9 +1,18 @@
 # scripts/train_reweight.py
 
 import os
+import warnings
+
+# Must be set before DataLoader workers spawn so they inherit the filter.
+os.environ.setdefault('PYTHONWARNINGS', 'ignore::FutureWarning')
+warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', message='.*pin_memory.*', category=UserWarning)
+warnings.filterwarnings('ignore', message='.*align should be passed.*')
+
 import sys
 import argparse
 import json
+import time
 import numpy as np
 import torch
 import torch.nn as nn
@@ -54,6 +63,10 @@ def parse_args():
     p.add_argument('--purity_threshold', type=float, default=0.15)
     p.add_argument('--purity_gate',      action='store_true')
     p.add_argument('--max_weight',       type=float, default=5.0)
+    p.add_argument('--ema_alpha',        type=float, default=1.0,
+                   help='EMA blend for weights: 1.0=no smoothing, 0.3=heavy smoothing')
+    p.add_argument('--soft_weights',     action='store_true',
+                   help='Continuous loss-proportional scoring instead of binary threshold')
 
     return p.parse_args()
 
@@ -86,10 +99,12 @@ def compute_weights(val_losses, val_labels, val_embs,
 
     n_displaced = (~valid_mask).sum()
 
-    # Percentile thresholds on non-displaced val points
-    valid_losses      = val_losses[valid_mask]
-    hard_threshold    = np.percentile(valid_losses, args.hard_percentile)
-    easy_threshold    = np.percentile(valid_losses, args.easy_percentile)
+    valid_losses   = val_losses[valid_mask]
+    loss_min       = valid_losses.min()
+    loss_max       = valid_losses.max()
+    loss_range     = loss_max - loss_min + 1e-8
+    hard_threshold = np.percentile(valid_losses, args.hard_percentile)
+    easy_threshold = np.percentile(valid_losses, args.easy_percentile)
 
     n_upweighted = n_downweighted = 0
 
@@ -97,18 +112,30 @@ def compute_weights(val_losses, val_labels, val_embs,
         if not valid_mask[i]:
             continue
 
-        nbr_idx = neighbor_indices[i]  # indices into train set
+        nbr_idx = neighbor_indices[i]
         loss_i  = val_losses[i]
 
-        if args.strategy in ('upweight_hard', 'both'):
-            if loss_i >= hard_threshold:
-                weights[nbr_idx] *= args.up_factor
+        if args.soft_weights:
+            # Continuous score: 0 at min loss, 1 at max loss
+            score = (loss_i - loss_min) / loss_range
+
+            if args.strategy in ('upweight_hard', 'both'):
+                weights[nbr_idx] *= (1.0 + (args.up_factor - 1.0) * score)
                 n_upweighted     += 1
 
-        if args.strategy in ('downweight_easy', 'both'):
-            if loss_i <= easy_threshold:
-                weights[nbr_idx] *= args.down_factor
+            if args.strategy in ('downweight_easy', 'both'):
+                weights[nbr_idx] *= (1.0 - (1.0 - args.down_factor) * (1.0 - score))
                 n_downweighted   += 1
+        else:
+            if args.strategy in ('upweight_hard', 'both'):
+                if loss_i >= hard_threshold:
+                    weights[nbr_idx] *= args.up_factor
+                    n_upweighted     += 1
+
+            if args.strategy in ('downweight_easy', 'both'):
+                if loss_i <= easy_threshold:
+                    weights[nbr_idx] *= args.down_factor
+                    n_downweighted   += 1
 
     # Clip
     weights = np.clip(weights, 1.0 / args.max_weight, args.max_weight)
@@ -221,12 +248,14 @@ def main():
         scheduler.step()
 
         # ── Evaluation passes ──────────────────────────────────────────────
+        t_eval = time.time()
         train_losses, train_embs, train_labels, train_acc = \
-            evaluation_pass(train_eval_loader, model, criterion, device)
+            evaluation_pass(train_eval_loader, model, criterion, device, name='train')
         val_losses,   val_embs,   val_labels,   val_acc   = \
-            evaluation_pass(val_loader,        model, criterion, device)
+            evaluation_pass(val_loader,        model, criterion, device, name='val  ')
         test_losses,  test_embs,  test_labels,  test_acc  = \
-            evaluation_pass(test_loader,       model, criterion, device)
+            evaluation_pass(test_loader,       model, criterion, device, name='test ')
+        print(f"  [eval {time.time()-t_eval:.1f}s]", end="  ")
 
         if train_labels_arr is None:
             train_labels_arr = train_labels
@@ -258,11 +287,16 @@ def main():
                                  args.out_dir, epoch + 1)
 
         # ── Compute new weights for next epoch ─────────────────────────────
-        sample_weights, weight_stats = compute_weights(
+        fresh_weights, weight_stats = compute_weights(
             val_losses, val_labels, val_embs,
             train_losses, train_labels, train_embs,
             n_train=n_train, args=args
         )
+        if args.ema_alpha < 1.0:
+            sample_weights = args.ema_alpha * fresh_weights + (1.0 - args.ema_alpha) * sample_weights
+            sample_weights = sample_weights * (n_train / sample_weights.sum())
+        else:
+            sample_weights = fresh_weights
 
         # ── Metrics ────────────────────────────────────────────────────────
         metrics, _, _, _ = compute_metrics_summary(
